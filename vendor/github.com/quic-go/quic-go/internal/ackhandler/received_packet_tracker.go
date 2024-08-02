@@ -58,9 +58,11 @@ func (h *receivedPacketTracker) ReceivedPacket(pn protocol.PacketNumber, ecn pro
 
 	if ackEliciting {
 		h.hasNewAck = true
-		h.maybeQueueACK(pn, rcvTime, ecn, isMissing)
 	}
-	//nolint:exhaustive // Only need to count ECT(0), ECT(1) and ECN-CE.
+	if ackEliciting {
+		h.maybeQueueACK(pn, rcvTime, isMissing)
+	}
+	//nolint:exhaustive // Only need to count ECT(0), ECT(1) and ECNCE.
 	switch ecn {
 	case protocol.ECT0:
 		h.ect0++
@@ -102,7 +104,7 @@ func (h *receivedPacketTracker) hasNewMissingPackets() bool {
 }
 
 // maybeQueueACK queues an ACK, if necessary.
-func (h *receivedPacketTracker) maybeQueueACK(pn protocol.PacketNumber, rcvTime time.Time, ecn protocol.ECN, wasMissing bool) {
+func (h *receivedPacketTracker) maybeQueueACK(pn protocol.PacketNumber, rcvTime time.Time, wasMissing bool) {
 	// always acknowledge the first packet
 	if h.lastAck == nil {
 		if !h.ackQueued {
@@ -141,15 +143,9 @@ func (h *receivedPacketTracker) maybeQueueACK(pn protocol.PacketNumber, rcvTime 
 		h.ackAlarm = rcvTime.Add(h.maxAckDelay)
 	}
 
-	// queue an ACK if there are new missing packets to report
+	// Queue an ACK if there are new missing packets to report.
 	if h.hasNewMissingPackets() {
 		h.logger.Debugf("\tQueuing ACK because there's a new missing packet to report.")
-		h.ackQueued = true
-	}
-
-	// queue an ACK if the packet was ECN-CE marked
-	if ecn == protocol.ECNCE {
-		h.logger.Debugf("\tQueuing ACK because the packet was ECN-CE marked.")
 		h.ackQueued = true
 	}
 
@@ -179,7 +175,7 @@ func (h *receivedPacketTracker) GetAckFrame(onlyIfQueued bool) *wire.AckFrame {
 		ack = &wire.AckFrame{}
 	}
 	ack.Reset()
-	ack.DelayTime = max(0, now.Sub(h.largestObservedRcvdTime))
+	ack.DelayTime = utils.Max(0, now.Sub(h.largestObservedRcvdTime))
 	ack.ECT0 = h.ect0
 	ack.ECT1 = h.ect1
 	ack.ECNCE = h.ecnce
