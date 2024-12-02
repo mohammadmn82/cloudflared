@@ -8,32 +8,34 @@ import (
 // A ConnectionTracer records events.
 type ConnectionTracer struct {
 	StartedConnection                func(local, remote net.Addr, srcConnID, destConnID ConnectionID)
-	NegotiatedVersion                func(chosen VersionNumber, clientVersions, serverVersions []VersionNumber)
+	NegotiatedVersion                func(chosen Version, clientVersions, serverVersions []Version)
 	ClosedConnection                 func(error)
 	SentTransportParameters          func(*TransportParameters)
 	ReceivedTransportParameters      func(*TransportParameters)
 	RestoredTransportParameters      func(parameters *TransportParameters) // for 0-RTT
 	SentLongHeaderPacket             func(*ExtendedHeader, ByteCount, ECN, *AckFrame, []Frame)
 	SentShortHeaderPacket            func(*ShortHeader, ByteCount, ECN, *AckFrame, []Frame)
-	ReceivedVersionNegotiationPacket func(dest, src ArbitraryLenConnectionID, _ []VersionNumber)
+	ReceivedVersionNegotiationPacket func(dest, src ArbitraryLenConnectionID, _ []Version)
 	ReceivedRetry                    func(*Header)
 	ReceivedLongHeaderPacket         func(*ExtendedHeader, ByteCount, ECN, []Frame)
 	ReceivedShortHeaderPacket        func(*ShortHeader, ByteCount, ECN, []Frame)
 	BufferedPacket                   func(PacketType, ByteCount)
-	DroppedPacket                    func(PacketType, ByteCount, PacketDropReason)
+	DroppedPacket                    func(PacketType, PacketNumber, ByteCount, PacketDropReason)
 	UpdatedMetrics                   func(rttStats *RTTStats, cwnd, bytesInFlight ByteCount, packetsInFlight int)
 	AcknowledgedPacket               func(EncryptionLevel, PacketNumber)
 	LostPacket                       func(EncryptionLevel, PacketNumber, PacketLossReason)
+	UpdatedMTU                       func(mtu ByteCount, done bool)
 	UpdatedCongestionState           func(CongestionState)
 	UpdatedPTOCount                  func(value uint32)
 	UpdatedKeyFromTLS                func(EncryptionLevel, Perspective)
-	UpdatedKey                       func(generation KeyPhase, remote bool)
+	UpdatedKey                       func(keyPhase KeyPhase, remote bool)
 	DroppedEncryptionLevel           func(EncryptionLevel)
-	DroppedKey                       func(generation KeyPhase)
+	DroppedKey                       func(keyPhase KeyPhase)
 	SetLossTimer                     func(TimerType, EncryptionLevel, time.Time)
 	LossTimerExpired                 func(TimerType, EncryptionLevel)
 	LossTimerCanceled                func()
 	ECNStateUpdated                  func(state ECNState, trigger ECNStateTrigger)
+	ChoseALPN                        func(protocol string)
 	// Close is called when the connection is closed.
 	Close func()
 	Debug func(name, msg string)
@@ -55,7 +57,7 @@ func NewMultiplexedConnectionTracer(tracers ...*ConnectionTracer) *ConnectionTra
 				}
 			}
 		},
-		NegotiatedVersion: func(chosen VersionNumber, clientVersions, serverVersions []VersionNumber) {
+		NegotiatedVersion: func(chosen Version, clientVersions, serverVersions []Version) {
 			for _, t := range tracers {
 				if t.NegotiatedVersion != nil {
 					t.NegotiatedVersion(chosen, clientVersions, serverVersions)
@@ -104,7 +106,7 @@ func NewMultiplexedConnectionTracer(tracers ...*ConnectionTracer) *ConnectionTra
 				}
 			}
 		},
-		ReceivedVersionNegotiationPacket: func(dest, src ArbitraryLenConnectionID, versions []VersionNumber) {
+		ReceivedVersionNegotiationPacket: func(dest, src ArbitraryLenConnectionID, versions []Version) {
 			for _, t := range tracers {
 				if t.ReceivedVersionNegotiationPacket != nil {
 					t.ReceivedVersionNegotiationPacket(dest, src, versions)
@@ -139,10 +141,10 @@ func NewMultiplexedConnectionTracer(tracers ...*ConnectionTracer) *ConnectionTra
 				}
 			}
 		},
-		DroppedPacket: func(typ PacketType, size ByteCount, reason PacketDropReason) {
+		DroppedPacket: func(typ PacketType, pn PacketNumber, size ByteCount, reason PacketDropReason) {
 			for _, t := range tracers {
 				if t.DroppedPacket != nil {
-					t.DroppedPacket(typ, size, reason)
+					t.DroppedPacket(typ, pn, size, reason)
 				}
 			}
 		},
@@ -164,6 +166,13 @@ func NewMultiplexedConnectionTracer(tracers ...*ConnectionTracer) *ConnectionTra
 			for _, t := range tracers {
 				if t.LostPacket != nil {
 					t.LostPacket(encLevel, pn, reason)
+				}
+			}
+		},
+		UpdatedMTU: func(mtu ByteCount, done bool) {
+			for _, t := range tracers {
+				if t.UpdatedMTU != nil {
+					t.UpdatedMTU(mtu, done)
 				}
 			}
 		},
@@ -234,6 +243,13 @@ func NewMultiplexedConnectionTracer(tracers ...*ConnectionTracer) *ConnectionTra
 			for _, t := range tracers {
 				if t.ECNStateUpdated != nil {
 					t.ECNStateUpdated(state, trigger)
+				}
+			}
+		},
+		ChoseALPN: func(protocol string) {
+			for _, t := range tracers {
+				if t.ChoseALPN != nil {
+					t.ChoseALPN(protocol)
 				}
 			}
 		},
